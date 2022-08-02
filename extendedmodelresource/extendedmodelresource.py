@@ -96,27 +96,26 @@ class ExtendedModelResource(ModelResource):
         # Due to the way Django parses URLs, ``get_multiple``
         # won't work without a trailing slash.
         return [
-            url(r"^(?P<resource_name>%s)%s$" %
-                    (self._meta.resource_name, trailing_slash()),
-                    self.wrap_view('dispatch_list'),
-                    name="api_dispatch_list"),
-            url(r"^(?P<resource_name>%s)/schema%s$" %
-                    (self._meta.resource_name, trailing_slash()),
-                    self.wrap_view('get_schema'),
-                    name="api_get_schema"),
-            url(r"^(?P<resource_name>%s)/set/(?P<%s_list>(%s;?)*)/$" %
-                    (self._meta.resource_name,
-                     self._meta.detail_uri_name,
-                     self.get_detail_uri_name_regex()),
-                    self.wrap_view('get_multiple'),
-                    name="api_get_multiple"),
-            url(r"^(?P<resource_name>%s)/(?P<%s>%s)%s$" %
-                    (self._meta.resource_name,
-                     self._meta.detail_uri_name,
-                     self.get_detail_uri_name_regex(),
-                     trailing_slash()),
-                     self.wrap_view('dispatch_detail'),
-                     name="api_dispatch_detail"),
+            url(
+                f"^(?P<resource_name>{self._meta.resource_name}){trailing_slash()}$",
+                self.wrap_view('dispatch_list'),
+                name="api_dispatch_list",
+            ),
+            url(
+                f"^(?P<resource_name>{self._meta.resource_name})/schema{trailing_slash()}$",
+                self.wrap_view('get_schema'),
+                name="api_get_schema",
+            ),
+            url(
+                f"^(?P<resource_name>{self._meta.resource_name})/set/(?P<{self._meta.detail_uri_name}_list>({self.get_detail_uri_name_regex()};?)*)/$",
+                self.wrap_view('get_multiple'),
+                name="api_get_multiple",
+            ),
+            url(
+                f"^(?P<resource_name>{self._meta.resource_name})/(?P<{self._meta.detail_uri_name}>{self.get_detail_uri_name_regex()}){trailing_slash()}$",
+                self.wrap_view('dispatch_detail'),
+                name="api_dispatch_detail",
+            ),
         ]
 
     def nested_urls(self):
@@ -167,11 +166,8 @@ class ExtendedModelResource(ModelResource):
         on this resource.
         """
         if self.detail_actions():
-            detail_url = "^(?P<resource_name>%s)/(?P<%s>%s)/" % (
-                            self._meta.resource_name,
-                            self._meta.detail_uri_name,
-                            self.get_detail_uri_name_regex()
-            )
+            detail_url = f"^(?P<resource_name>{self._meta.resource_name})/(?P<{self._meta.detail_uri_name}>{self.get_detail_uri_name_regex()})/"
+
             return patterns('', (detail_url, include(self.detail_actions())))
 
         return []
@@ -214,8 +210,7 @@ class ExtendedModelResource(ModelResource):
 
         # If I am not authorized for the parent
         if not self.is_authorized_over_parent(request, parent_object):
-            stringified_kwargs = ', '.join(["%s=%s" % (k, v)
-                                            for k, v in kwargs.items()])
+            stringified_kwargs = ', '.join([f"{k}={v}" for k, v in kwargs.items()])
             raise self._meta.object_class.DoesNotExist("Couldn't find an "
                     "instance of '%s' which matched '%s'." %
                     (self._meta.object_class.__name__, stringified_kwargs))
@@ -293,12 +288,7 @@ class ExtendedModelResource(ModelResource):
         Takes an optional ``request`` object, whose ``GET`` dictionary can be
         used to narrow the query.
         """
-        filters = {}
-
-        if hasattr(request, 'GET'):
-            # Grab a mutable copy.
-            filters = request.GET.copy()
-
+        filters = request.GET.copy() if hasattr(request, 'GET') else {}
         # Update with the provided kwargs.
         filters.update(self.real_remove_api_resource_names(kwargs))
         applicable_filters = self.build_filters(filters=filters)
@@ -325,8 +315,7 @@ class ExtendedModelResource(ModelResource):
             object_list = self.apply_proper_authorization_limits(request,
                                                 base_object_list, **kwargs)
 
-            stringified_kwargs = ', '.join(["%s=%s" % (k, v)
-                                            for k, v in kwargs.items()])
+            stringified_kwargs = ', '.join([f"{k}={v}" for k, v in kwargs.items()])
 
             if len(object_list) <= 0:
                 raise self._meta.object_class.DoesNotExist("Couldn't find an "
@@ -420,8 +409,7 @@ class ExtendedModelResource(ModelResource):
         #       kwargs to know if we should check for auth?
         try:
             object_list = self.get_object_list(request).filter(**kwargs)
-            stringified_kwargs = ', '.join(["%s=%s" % (k, v)
-                                            for k, v in kwargs.items()])
+            stringified_kwargs = ', '.join([f"{k}={v}" for k, v in kwargs.items()])
 
             if len(object_list) <= 0:
                 raise self._meta.object_class.DoesNotExist("Couldn't find an "
@@ -444,7 +432,7 @@ class ExtendedModelResource(ModelResource):
         Allows the ``Authorization`` class to further limit the object list.
         Also a hook to customize per ``Resource``.
         """
-        method_name = 'apply_limits_nested_%s' % nested_name
+        method_name = f'apply_limits_nested_{nested_name}'
         if hasattr(parent_resource._meta.authorization, method_name):
             method = getattr(parent_resource._meta.authorization, method_name)
             object_list = method(request, parent_object, object_list)
@@ -457,7 +445,7 @@ class ExtendedModelResource(ModelResource):
         Decide which type of authorization to apply, if the resource is being
         used as nested or not.
         """
-        parent_resource = kwargs.get('parent_resource', None)
+        parent_resource = kwargs.get('parent_resource')
         if parent_resource is None:  # No parent, used normally
             return self.apply_authorization_limits(request, object_list)
 
@@ -529,7 +517,7 @@ class ExtendedModelResource(ModelResource):
                 del kwargs['pk']
             # Update with the related manager's filters, which will link to
             # the parent.
-            kwargs.update(manager.core_filters)
+            kwargs |= manager.core_filters
 
         return nested_resource.dispatch(
             dispatch_type,
@@ -546,7 +534,7 @@ class ExtendedModelResource(ModelResource):
         checking.
         """
         # We use the authorization of the parent resource
-        method_name = 'is_authorized_nested_%s' % nested_name
+        method_name = f'is_authorized_nested_{nested_name}'
         if hasattr(parent_resource._meta.authorization, method_name):
             method = getattr(parent_resource._meta.authorization, method_name)
             auth_result = method(request, parent_object, object)
@@ -554,7 +542,7 @@ class ExtendedModelResource(ModelResource):
             if isinstance(auth_result, HttpResponse):
                 raise ImmediateHttpResponse(response=auth_result)
 
-            if not auth_result is True:
+            if auth_result is not True:
                 raise ImmediateHttpResponse(response=http.HttpUnauthorized())
 
     def dispatch(self, request_type, request, **kwargs):
@@ -562,11 +550,10 @@ class ExtendedModelResource(ModelResource):
         Same as the usual dispatch, but knows if its being called from a nested
         resource.
         """
-        allowed_methods = getattr(self._meta,
-                                  "%s_allowed_methods" % request_type, None)
+        allowed_methods = getattr(self._meta, f"{request_type}_allowed_methods", None)
         request_method = self.method_check(request, allowed=allowed_methods)
 
-        method = getattr(self, "%s_%s" % (request_method, request_type), None)
+        method = getattr(self, f"{request_method}_{request_type}", None)
 
         if method is None:
             raise ImmediateHttpResponse(response=http.HttpNotImplemented())
@@ -574,7 +561,7 @@ class ExtendedModelResource(ModelResource):
         self.is_authenticated(request)
         self.throttle_check(request)
 
-        parent_resource = kwargs.get('parent_resource', None)
+        parent_resource = kwargs.get('parent_resource')
         if parent_resource is None:
             self.is_authorized(request)
         else:
@@ -592,10 +579,7 @@ class ExtendedModelResource(ModelResource):
         # If what comes back isn't a ``HttpResponse``, assume that the
         # request was accepted and that some action occurred. This also
         # prevents Django from freaking out.
-        if not isinstance(response, HttpResponse):
-            return http.HttpNoContent()
-
-        return response
+        return response if isinstance(response, HttpResponse) else http.HttpNoContent()
 
     def get_detail(self, request, **kwargs):
         """
